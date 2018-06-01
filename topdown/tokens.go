@@ -6,6 +6,7 @@ package topdown
 
 import (
 	"crypto"
+	"crypto/hmac"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -146,6 +147,44 @@ func builtinJWTVerifyRS256(a ast.Value, b ast.Value) (ast.Value, error) {
 	return ast.Boolean(true), nil
 }
 
+// Implements Secret JWT signature verification
+func builtinJWTVerifySecret(a ast.Value, b ast.Value) (ast.Value, error) {
+
+	// Process the token
+	astToken, err := builtins.StringOperand(a, 1)
+	if err != nil {
+		return nil, err
+	}
+	token := string(astToken)
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("encoded JWT must have 3 sections, found %d", len(parts))
+	}
+
+	headerPayload := []byte(strings.Join(parts[:2], "."))
+	sign, err := builtinBase64UrlDecode(ast.String(parts[2]))
+	if err != nil {
+		return nil, err
+	}
+	signature := []byte(sign.(ast.String))
+
+	// Process Secret input
+	astSecret, err := builtins.StringOperand(b, 2)
+	if err != nil {
+		return nil, err
+	}
+	secret := string(astSecret)
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(headerPayload))
+	expectedMAC := mac.Sum(nil)
+	if hmac.Equal(signature, expectedMAC) == false {
+		return ast.Boolean(false), nil
+	}
+
+	return ast.Boolean(true), nil
+}
+
 // Extract, validate and return the JWT header as an ast.Object.
 func validateJWTHeader(h string) (ast.Object, error) {
 	header, err := extractJSONObject(h)
@@ -196,4 +235,5 @@ func getInputSHA(input []byte) (hash []byte) {
 func init() {
 	RegisterFunctionalBuiltin1(ast.JWTDecode.Name, builtinJWTDecode)
 	RegisterFunctionalBuiltin2(ast.JWTVerifyRS256.Name, builtinJWTVerifyRS256)
+	RegisterFunctionalBuiltin2(ast.JWTVerifySecret.Name, builtinJWTVerifySecret)
 }
